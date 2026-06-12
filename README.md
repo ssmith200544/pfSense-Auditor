@@ -58,7 +58,7 @@ effort of demonstrating compliance.
   and rarely cover more than a handful of checks.
 - **Host-level vulnerability scanners** (Tenable, Qualys, Rapid7) —
   scan for CVEs against running services; they do not review the
-  firewall's _own_ configuration.
+  firewall's *own* configuration.
 
 ### What gap does your tool fill?
 
@@ -157,7 +157,7 @@ without touching parsing or checks.
   and (b) a non-existent file path; both produce clear error
   messages and a non-zero exit code.
 - JSON output was validated by piping into `python -c "import
-json,sys; json.load(sys.stdin)"` to confirm the format is parseable.
+  json,sys; json.load(sys.stdin)"` to confirm the format is parseable.
 
 ### Results
 
@@ -266,21 +266,21 @@ be committed). Then:
 
 ### Options
 
-| Flag             | Description                              |
-| ---------------- | ---------------------------------------- |
-| `-f`, `--format` | `text` (default) or `json`               |
-| `-o`, `--output` | Write report to a file instead of stdout |
-| `--no-exit-code` | Always exit 0 (useful when piping)       |
-| `-h`, `--help`   | Show usage information                   |
+| Flag                 | Description                                    |
+|----------------------|------------------------------------------------|
+| `-f`, `--format`     | `text` (default) or `json`                     |
+| `-o`, `--output`     | Write report to a file instead of stdout       |
+| `--no-exit-code`     | Always exit 0 (useful when piping)             |
+| `-h`, `--help`       | Show usage information                         |
 
 ### Exit codes
 
-| Code | Meaning                                |
-| ---- | -------------------------------------- |
-| 0    | No findings, or only `info` findings   |
-| 1    | At least one `low` or `medium` finding |
-| 2    | At least one `high` finding            |
-| 3    | Parser / runtime error                 |
+| Code | Meaning                                  |
+|------|------------------------------------------|
+| 0    | No findings, or only `info` findings     |
+| 1    | At least one `low` or `medium` finding   |
+| 2    | At least one `high` finding              |
+| 3    | Parser / runtime error                   |
 
 ---
 
@@ -301,20 +301,20 @@ isn't aliased.
 
 ## Checks Implemented (Day 7 MVP)
 
-| ID      | Severity     | Check                                      |
-| ------- | ------------ | ------------------------------------------ |
-| FW-001  | high         | Permissive any/any pass rules              |
-| FW-002  | low          | Rules with no description                  |
-| FW-003  | medium       | Pass rules with logging disabled           |
-| FW-004  | info         | Disabled rules left in the configuration   |
-| FW-005  | high         | WAN pass rules with destination `(self)`   |
-| FW-006  | low          | Aliases defined but never referenced       |
-| SYS-001 | high         | webConfigurator running on HTTP            |
-| SYS-002 | medium       | SSH enabled with password auth allowed     |
-| SYS-003 | medium       | Built-in `admin` account still enabled     |
-| SYS-004 | high         | SNMP enabled with default community string |
-| SYS-005 | low / medium | NTP missing or fewer than three sources    |
-| SYS-006 | medium       | No remote syslog forwarding configured     |
+| ID      | Severity      | Check                                            |
+|---------|---------------|--------------------------------------------------|
+| FW-001  | high          | Permissive any/any pass rules                    |
+| FW-002  | low           | Rules with no description                        |
+| FW-003  | medium        | Pass rules with logging disabled                 |
+| FW-004  | info          | Disabled rules left in the configuration         |
+| FW-005  | high          | WAN pass rules with destination `(self)`         |
+| FW-006  | low           | Aliases defined but never referenced             |
+| SYS-001 | high          | webConfigurator running on HTTP                  |
+| SYS-002 | medium        | SSH enabled with password auth allowed           |
+| SYS-003 | medium        | Built-in `admin` account still enabled           |
+| SYS-004 | high          | SNMP enabled with default community string       |
+| SYS-005 | low / medium  | NTP missing or fewer than three sources          |
+| SYS-006 | medium        | No remote syslog forwarding configured           |
 
 ---
 
@@ -349,6 +349,24 @@ pfsense_auditor/                  <- repo root
 - No credentials, no API access, no production firewall changes.
 - The same input file produces the same report — repeatable evidence.
 - Works against any pfSense version emitting compatible `config.xml`.
+
+---
+
+## Roadmap
+
+**Day 14** — expanded coverage and HTML reporting:
+
+- Data-driven check definitions (YAML) so non-developers can add checks.
+- ~40 checks aligned to the CIS pfSense Benchmark, Level 1.
+- Jinja2-based HTML report with grouped findings and filtering.
+- CMMC control cross-references on each finding.
+
+**Day 21** — diff mode for change-control evidence:
+
+- `pfsense-audit diff old.xml new.xml` — compare two configs.
+- Highlight added / removed / modified rules, aliases, users, services.
+- Risk-classify changes (e.g. "rule loosened" vs "rule tightened").
+- HTML side-by-side view.
 
 ---
 
@@ -393,6 +411,34 @@ The editable install (`-e`) creates a `pfsense-audit` command on your
 2. Append the function to the `ALL_CHECKS` list at the bottom of
    `checks.py`.
 3. Document it in the Checks Implemented table above.
+
+---
+
+## AI Usage
+
+This tool was developed in collaboration with **Claude (Anthropic)**.
+The workflow was iterative and roughly followed these steps:
+
+1. **Scoping conversation.** Several candidate tool ideas were
+   discussed against the CSC-842 theme and the 7 / 14 / 21-day
+   cadence. The pfSense configuration auditor was selected for its
+   tight scope and direct fit with the author's work environment.
+2. **Architecture review.** The three-stage pipeline
+   (Parser → Models → Checks → Report) was sketched and agreed on
+   before any code was written.
+3. **Initial implementation.** Claude generated the first pass of
+   `parser.py`, `models.py`, `checks.py`, `report.py`, `cli.py`, the
+   synthetic test fixture, the wrapper scripts, and the project
+   scaffolding.
+4. **Iterative refinement.** The README was rewritten after Windows
+   usability issues surfaced during the first test run. Cross-platform
+   wrapper scripts were added in response. The Phase 1 documentation
+   sections were added later to match the assignment requirements.
+
+All design decisions were reviewed before adoption. The generated
+code was executed end-to-end against the synthetic fixture and the
+expected findings verified by hand. The author is responsible for
+the correctness, integrity, and ongoing maintenance of the tool.
 
 ---
 
