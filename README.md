@@ -10,6 +10,199 @@ no production changes.
 
 ---
 
+## Problem Definition
+
+### What specific problem are you addressing?
+
+Firewall configurations drift over time. Rules pile up, services get
+enabled and forgotten, default community strings and HTTP management
+endpoints linger from initial setup, and "temporary" any/any rules
+become permanent. The configuration that was reviewed and approved on
+day one is rarely the configuration running on day 300.
+
+Detecting that drift in pfSense today means either clicking through
+dozens of web UI screens manually, or reading a ~3,000-line XML file
+by hand. Both approaches are slow, error-prone, and produce no
+artifact an auditor can re-run six months later to verify the same
+results.
+
+### Why is the problem important?
+
+A firewall is a perimeter control. A single misconfiguration —
+SNMP open with the `public` community, the webConfigurator on HTTP,
+a forgotten WAN-to-management rule — can undermine every other
+control behind it. These are also exactly the kinds of findings
+that show up repeatedly in real penetration tests and audit reports.
+
+Configuration assessment is also an explicit compliance requirement.
+NIST SP 800-171 CM.L2-3.4.1 / 3.4.2 require organizations to
+establish and enforce baseline configurations. CMMC Level 2 inherits
+those requirements. AU.L2-3.3.x requires evidence that successful
+network access is being logged — which only works if pass rules
+actually have logging enabled. A tool that produces deterministic,
+machine-readable evidence of these checks meaningfully reduces the
+effort of demonstrating compliance.
+
+### What existing tools or approaches exist?
+
+- **Manual review** of the web UI or raw `config.xml` — the
+  baseline. Slow, inconsistent, and produces no durable artifact.
+- **CIS-CAT Assessor** — the official CIS benchmark runner.
+  Excellent for OS-level checks (Windows, Linux), but its pfSense
+  coverage is limited and the Pro version requires a CIS membership.
+- **Nipper Studio** (Titania) — commercial multi-vendor network
+  device auditor. Capable, but expensive and a heavyweight install
+  for a single-firewall use case.
+- **Ad-hoc scripts** — many organizations maintain internal grep /
+  XPath one-liners over `config.xml`. Useful but unsharable, undocumented,
+  and rarely cover more than a handful of checks.
+- **Host-level vulnerability scanners** (Tenable, Qualys, Rapid7) —
+  scan for CVEs against running services; they do not review the
+  firewall's *own* configuration.
+
+### What gap does your tool fill?
+
+A free, open-source, pfSense-specific configuration auditor that is:
+
+- **Offline.** Reads an exported `config.xml`; never touches the live
+  firewall. Safe to run against backups, sanitized configs, or
+  archived snapshots without risk to production.
+- **Repeatable.** Same input file → same findings. Suitable as
+  audit evidence and for use in change-control diff workflows.
+- **CMMC / NIST 800-171 aware.** Findings reference the control
+  families they map to, so a finding doubles as documentation of
+  why it matters.
+- **Pipeline-friendly.** JSON output and severity-aware exit codes
+  make the tool usable in CI or scheduled-evidence-collection jobs.
+- **Lightweight.** Two Python dependencies. No database, no web
+  server, no agent. Two-line installation, one-line invocation.
+
+---
+
+## System Design
+
+### High-level architecture
+
+The tool follows a straightforward three-stage pipeline:
+
+```
+config.xml  ──►  Parser  ──►  Models  ──►  Checks  ──►  Report
+                 (XML)      (dataclasses) (functions)  (text/JSON)
+```
+
+1. **Parser** (`parser.py`) reads `config.xml` with `lxml` and
+   constructs strongly-typed Python dataclasses. It handles pfSense's
+   quirky "presence-as-flag" XML convention (`<enable></enable>`
+   means enabled; absence means disabled) so downstream code never
+   has to.
+2. **Models** (`models.py`) define the dataclass shapes —
+   `PfSenseConfig`, `Rule`, `Alias`, `User`, `Finding`, etc. Every
+   later stage works against these typed objects, never against raw
+   XML.
+3. **Checks** (`checks.py`) are pure functions that each take a
+   `PfSenseConfig` and return a list of `Finding` objects. They are
+   registered in an `ALL_CHECKS` list; adding a check is one
+   function and one list append.
+4. **Report** (`report.py`) formats the parsed inventory and the
+   findings as either human-readable text or machine-readable JSON.
+5. **CLI** (`cli.py`) is a thin Click wrapper that wires the above
+   together and sets a severity-aware exit code (0 / 1 / 2 / 3).
+
+This separation matters: the parser shields the rest of the code
+from XML quirks, the checks contain no I/O so they are trivially
+unit-testable, and a new output format (HTML in Day 14) plugs in
+without touching parsing or checks.
+
+### Technology choices and justification
+
+- **Python 3.10+** — type hints and built-in dataclasses keep the
+  code self-documenting. Python is also the de-facto language for
+  security tooling, making the tool easy for other security
+  practitioners to read, modify, and extend.
+- **lxml** — chosen over the standard library's `ElementTree` for
+  faster parsing and full XPath 1.0 support. pfSense config files
+  on busy firewalls can reach several thousand lines; `lxml` handles
+  them without noticeable delay.
+- **Click** — chosen over `argparse` for a cleaner declarative CLI,
+  better help output, and easier expansion when sub-commands
+  (`audit`, `diff`, etc.) are added in later milestones.
+- **`dataclasses` (stdlib), no Pydantic** — keeps the dependency
+  surface minimal. Pydantic's validation features would be
+  overkill given the parser is the only producer of model objects.
+- **No database, no web framework, no agents** — the tool reads
+  one file and writes one report. Anything more would be added
+  complexity without added value at this scope.
+- **JSON output by default option, not HTML** — JSON ingests
+  cleanly into Splunk and other SIEMs, which is the deployment
+  target most aligned with how this would actually be used. HTML
+  reporting is planned for Day 14.
+
+---
+
+## Evaluation
+
+### How did you test the tool?
+
+- A synthetic `tests/fixtures/sample_config.xml` was hand-crafted
+  to deliberately trigger every check. The fixture contains
+  realistic-looking but fully fake IPs, hostnames, and bcrypt
+  hashes so it is safe to commit to a public repository.
+- The tool was run against the synthetic config and the produced
+  findings were cross-checked by hand against the deliberate
+  misconfigurations.
+- A minimal "clean" config (no findings expected) was also tested
+  to verify the zero-findings path produces an empty findings
+  section and a `0` exit code.
+- Error handling was tested with (a) a non-pfSense XML document
+  and (b) a non-existent file path; both produce clear error
+  messages and a non-zero exit code.
+- JSON output was validated by piping into `python -c "import
+  json,sys; json.load(sys.stdin)"` to confirm the format is parseable.
+
+### Results
+
+- Against the synthetic fixture: **14 findings produced** across
+  all 12 checks (some checks legitimately fire multiple times when
+  a config violates the same rule in several places — for example,
+  multiple pass rules without logging each generate their own
+  finding).
+- Severity distribution: 4 `high`, 6 `medium`, 3 `low`, 1 `info`.
+- Exit code `2` returned, as expected when any `high` findings exist.
+- Against the minimal clean config: zero findings, exit code `0`.
+- JSON output round-trips correctly through `json.loads`.
+- Total runtime on the synthetic config: under 100 ms.
+
+### Known issues and limitations
+
+- **Coverage is Day 7 MVP scope.** 12 checks cover common
+  misconfigurations but are not exhaustive — the CIS pfSense
+  Benchmark defines ~40 controls at Level 1, and full coverage is
+  planned for Day 14.
+- **Only tested against synthetic configs.** Real production
+  `config.xml` exports may use sections (CARP, complex IPsec
+  phase-2 entries, captive portal, package configs) the synthetic
+  fixture does not exercise. The parser is defensive — missing
+  elements return `None` rather than raising — but additional
+  real-world testing is required before production use.
+- **OPNsense compatibility unverified.** OPNsense forked from
+  pfSense and uses a very similar XML format. The tool may work
+  out of the box, may need minor adjustments, or may need a
+  dedicated parser; this has not been tested.
+- **Checks are hardcoded in Python.** Adding a check requires
+  editing source. A YAML-driven check definition system is planned
+  for Day 14 so non-developers can contribute checks.
+- **No diff capability yet.** Comparing two `config.xml` files for
+  drift is the Day 21 milestone.
+- **No HTML report yet.** Text and JSON only at Day 7; HTML is
+  planned for Day 14.
+- **Bcrypt hash strength is not evaluated.** The tool detects that
+  the default `admin` account exists but does not assess password
+  hash quality. This is a deliberate scope decision — assessing
+  hashes requires either a brute-force harness or strong
+  assumptions about pfSense's hash format.
+
+---
+
 ## Quick Start
 
 You need **Python 3.10 or later** installed. Verify by running
