@@ -272,6 +272,7 @@ be committed). Then:
 | `-f`, `--format`     | `text` (default), `json`, or `html`                         |
 | `-o`, `--output`     | Write report to a file instead of stdout                    |
 | `-a`, `--allowlist`  | Path to a YAML suppression file (see below)                 |
+| `-p`, `--profile`    | Operating profile: `cmmc` (default), `business`, or `home`  |
 | `--no-exit-code`     | Always exit 0 (useful when piping)                          |
 | `-h`, `--help`       | Show usage information                                      |
 
@@ -280,12 +281,16 @@ loaded from the current directory if present.
 
 ### Exit codes
 
-| Code | Meaning                                  |
-|------|------------------------------------------|
-| 0    | No findings, or only `info` findings     |
-| 1    | At least one `low` or `medium` finding   |
-| 2    | At least one `high` finding              |
-| 3    | Parser / runtime error                   |
+| Code | Meaning                                                    |
+|------|------------------------------------------------------------|
+| 0    | No findings, or only `info` findings                       |
+| 1    | At least one `low` or `medium` finding                     |
+| 2    | At least one `high` finding                                |
+| 3    | Input error: missing file, malformed XML, or bad allowlist |
+
+Code `3` is returned for *any* input problem so it never collides with
+`2`. CI scripts can safely distinguish "the firewall has high-severity
+findings" from "the tool couldn't read the input."
 
 ---
 
@@ -339,6 +344,60 @@ format.
 | SYS-010 | medium        | **User accounts past expiry but still enabled**  | AC.L2-3.1.1, IA.L2-3.5.6            |
 
 Bold entries are new in Day 14.
+
+---
+
+## Profiles
+
+The same finding can mean different things in different environments.
+"No remote syslog forwarding" is a serious finding for a CMMC-regulated
+enterprise enclave; it's noise for a home user with no SIEM. Profiles
+let the tool match its output to its audience.
+
+Three profiles ship built-in. Select with `-p` / `--profile`:
+
+| Profile     | Description                                                                 |
+|-------------|-----------------------------------------------------------------------------|
+| `cmmc`      | Federal contracting baseline (default). All checks at documented severity.  |
+| `business`  | SMB without explicit compliance. Two checks lightly downgraded.             |
+| `home`      | Residential. Audit-trail / SIEM-dependent checks downgraded or suppressed; control references hidden. |
+
+### What each profile changes
+
+The `home` profile suppresses these checks entirely:
+
+- `FW-002` rules without descriptions (no audit-trail requirement)
+- `FW-004` disabled rules (clutter, not security)
+- `FW-006` unused aliases (cosmetic)
+- `SYS-006` no remote syslog (home users typically have no SIEM)
+
+And downgrades these to `info` / `low`:
+
+- `FW-003` pass rules without logging → `info`
+- `SYS-002` SSH password auth → `low`
+- `SYS-005` fewer than three NTP sources → `info`
+- `SYS-009` admin users without MFA → `info`
+
+The `business` profile is lighter: just downgrades `FW-002` to `info`
+and `SYS-006` to `low`, and keeps control references visible.
+
+**High-severity findings are never downgraded by any profile.** Real
+security issues — weak IPsec crypto, expired certs, default SNMP
+community strings, exposed RDP port-forwards — stay `high` regardless
+of audience. The tool's tests enforce this invariant.
+
+### Example
+
+```bash
+# Default - CMMC baseline
+.\run.bat my-config.xml
+
+# Home use
+.\run.bat my-config.xml --profile home
+
+# Business with allowlist
+.\run.bat my-config.xml --profile business -a suppressions.yaml
+```
 
 ---
 
@@ -425,27 +484,35 @@ pfsense_auditor/                  <- repo root
 
 ### ✅ Day 14 — delivered
 
-- 6 new checks: IPsec weak crypto, high-risk port forwards, certificate
-  expiry, certificate weak crypto, privileged users without MFA,
-  expired-but-enabled user accounts (total: 18 checks)
-- **Findings allowlist** with exact / glob / regex matching, expiry
-  tracking, and unused-rule detection
-- **HTML report** with severity filtering, control mapping inline
-- **CMMC / NIST 800-171 control mapping** on every finding
-- Pytest test suite (35 tests covering checks and suppression engine)
+- 6 new checks (IPsec weak crypto, port-forward exposure, cert expiry,
+  weak certs, MFA on admin users, expired user accounts)
+- Findings allowlist (YAML, exact / glob / regex matching, expiry)
+- HTML report with severity filtering
+- CMMC / NIST 800-171 control mapping on every finding
+- Pytest test suite (35 tests)
 
-### Day 21 — diff mode (planned)
+### ✅ Day 21 — delivered (from peer-review feedback)
 
-- `pfsense-audit diff old.xml new.xml` — compare two configs
-- Risk-classify changes (rule loosened, service added, user added)
-- HTML side-by-side view for change-control evidence
+- **Operating profiles** (`home`, `business`, `cmmc`) — addresses
+  reviewer feedback that a CMMC-only severity model misclassifies
+  home-network findings as high-risk
+- **Exit code alignment** — input errors (missing file, malformed XML,
+  bad allowlist) now consistently return code `3` instead of colliding
+  with `2` (high findings)
+- Test suite expanded to 50 tests, including CLI exit-code regression
+  tests
 
-### Future
+### Future work
 
+- Multi-version sanitized fixtures for parser regression testing
+- "Remediation hints" mode that suggests XML patches (read-only;
+  never auto-applied) — middle ground for reviewer suggestion that
+  the tool fix findings automatically
+- Diff mode — compare two configs for drift / change-control
 - Full CIS pfSense Benchmark Level 1 coverage (~40 checks)
 - SARIF output for GitHub PR integration
 - CSV output for auditor workflows
-- YAML-driven check definitions for non-developer contributions
+- Custom user-defined profiles loaded from YAML
 
 ---
 

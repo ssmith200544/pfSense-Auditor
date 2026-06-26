@@ -179,7 +179,8 @@ def _format_suppressions(apply: ApplyResult) -> list[str]:
 
 
 def render_text_report(config: PfSenseConfig,
-                       apply: ApplyResult) -> str:
+                       apply: ApplyResult,
+                       profile=None) -> str:
     """Render a full human-readable audit report."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines: list[str] = []
@@ -187,6 +188,13 @@ def render_text_report(config: PfSenseConfig,
     lines.append("  pfSense Configuration Audit Report")
     lines.append(_hr("="))
     lines.append(f"  Generated: {now}")
+    if profile is not None:
+        # Count how many checks were affected for the impact summary.
+        from .checks import ALL_CHECKS
+        lines.append(
+            f"  Profile:   {profile.name}  "
+            f"({profile.impact_summary(len(ALL_CHECKS))})"
+        )
     lines.append("")
     lines.extend(_format_inventory(config))
     lines.extend(_format_findings(apply.active))
@@ -215,10 +223,21 @@ def _suppressed_to_dict(sf: SuppressedFinding) -> dict:
     }
 
 
-def render_json_report(config: PfSenseConfig, apply: ApplyResult) -> str:
+def render_json_report(config: PfSenseConfig, apply: ApplyResult,
+                       profile=None) -> str:
     counts = _summary_counts(apply.active)
     payload = {
         "generated_utc": datetime.now(timezone.utc).isoformat(),
+        "profile": (
+            {
+                "name": profile.name,
+                "description": profile.description,
+                "severity_overrides": dict(profile.severity_overrides),
+                "suppressed_checks": sorted(profile.suppress_checks),
+                "hide_controls": profile.hide_controls,
+            }
+            if profile is not None else None
+        ),
         "config": {
             "version": config.version,
             "hostname": config.system.hostname,
@@ -408,7 +427,8 @@ def _html_suppressed(sf: SuppressedFinding) -> str:
     """
 
 
-def render_html_report(config: PfSenseConfig, apply: ApplyResult) -> str:
+def render_html_report(config: PfSenseConfig, apply: ApplyResult,
+                       profile=None) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     counts = _summary_counts(apply.active)
 
@@ -487,9 +507,17 @@ def render_html_report(config: PfSenseConfig, apply: ApplyResult) -> str:
         </section>
         """
 
+    profile_html = ""
+    if profile is not None:
+        profile_html = (
+            f'<div class="meta" style="margin-top:6px">Profile: '
+            f'<b>{_esc(profile.name)}</b> &mdash; '
+            f'{_esc(profile.description)}</div>'
+        )
+
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
-<title>pfSense Audit — {_esc(sys_obj.hostname)}</title>
+<title>pfSense Audit &mdash; {_esc(sys_obj.hostname)}</title>
 <style>{HTML_CSS}</style>
 </head><body>
 <div class="container">
@@ -497,6 +525,7 @@ def render_html_report(config: PfSenseConfig, apply: ApplyResult) -> str:
     <h1>pfSense Configuration Audit Report</h1>
     <div class="meta">{_esc(sys_obj.hostname)}.{_esc(sys_obj.domain)} &middot;
       Generated {now}</div>
+    {profile_html}
   </header>
 
   <section>

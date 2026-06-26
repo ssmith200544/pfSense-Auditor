@@ -406,3 +406,193 @@ def test_expired_suppression_is_flagged_but_still_applied():
     assert len(result.suppressed) == 1
     assert len(result.expired_suppressions) == 1
     assert len(result.active) == 0
+
+
+# ---------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------
+
+from pfsense_auditor.profiles import (
+    BUILT_IN_PROFILES,
+    PROFILE_BUSINESS,
+    PROFILE_CMMC,
+    PROFILE_HOME,
+    Profile,
+    get_profile,
+)
+
+
+def _sample_findings() -> list[Finding]:
+    """A handful of findings spanning checks the profiles touch."""
+    return [
+        Finding(check_id="FW-002", severity="low",
+                title="No descr", description="d", affected="x",
+                control_refs=["CM.L2-3.4.1"]),
+        Finding(check_id="FW-003", severity="medium",
+                title="No log", description="d", affected="y",
+                control_refs=["AU.L2-3.3.1"]),
+        Finding(check_id="SYS-006", severity="medium",
+                title="No syslog", description="d", affected="z",
+                control_refs=["AU.L2-3.3.8"]),
+        Finding(check_id="SYS-004", severity="high",
+                title="SNMP default", description="d", affected="snmp",
+                control_refs=["IA.L2-3.5.7"]),
+    ]
+
+
+def test_get_profile_returns_builtin():
+    assert get_profile("home") is PROFILE_HOME
+    assert get_profile("HOME") is PROFILE_HOME       # case-insensitive
+    assert get_profile("business") is PROFILE_BUSINESS
+    assert get_profile("cmmc") is PROFILE_CMMC
+
+
+def test_get_profile_returns_none_for_unknown():
+    assert get_profile("definitely-not-a-profile") is None
+
+
+def test_cmmc_profile_is_passthrough():
+    """CMMC profile should not change anything."""
+    findings = _sample_findings()
+    result = PROFILE_CMMC.apply(findings)
+    assert len(result) == len(findings)
+    for orig, new in zip(findings, result):
+        assert orig.check_id == new.check_id
+        assert orig.severity == new.severity
+        assert orig.control_refs == new.control_refs
+
+
+def test_business_profile_overrides_severity():
+    findings = _sample_findings()
+    result = PROFILE_BUSINESS.apply(findings)
+    sev_by_id = {f.check_id: f.severity for f in result}
+    assert sev_by_id["FW-002"] == "info"     # downgraded from low
+    assert sev_by_id["SYS-006"] == "low"     # downgraded from medium
+    assert sev_by_id["SYS-004"] == "high"    # untouched
+
+
+def test_home_profile_suppresses_and_overrides():
+    findings = _sample_findings()
+    result = PROFILE_HOME.apply(findings)
+    ids = {f.check_id for f in result}
+    # FW-002 and SYS-006 are suppressed entirely by home profile
+    assert "FW-002" not in ids
+    assert "SYS-006" not in ids
+    # FW-003 stays but gets downgraded to info
+    fw003 = next(f for f in result if f.check_id == "FW-003")
+    assert fw003.severity == "info"
+    # SNMP default is still high - real security issue regardless
+    sys004 = next(f for f in result if f.check_id == "SYS-004")
+    assert sys004.severity == "high"
+
+
+def test_home_profile_hides_controls():
+    findings = _sample_findings()
+    result = PROFILE_HOME.apply(findings)
+    for f in result:
+        assert f.control_refs == []
+
+
+def test_business_profile_keeps_controls():
+    findings = _sample_findings()
+    result = PROFILE_BUSINESS.apply(findings)
+    # At least one finding should still carry its control refs
+    assert any(f.control_refs for f in result)
+
+
+def test_profile_impact_summary():
+    assert PROFILE_CMMC.impact_summary(18) == "no adjustments"
+    assert "suppressed" in PROFILE_HOME.impact_summary(18)
+    assert "override" in PROFILE_BUSINESS.impact_summary(18)
+
+
+def test_high_severity_findings_survive_all_profiles():
+    """High-severity findings should never be downgraded by any built-in
+    profile — real security issues are real regardless of environment."""
+    high_finding = Finding(
+        check_id="SYS-004", severity="high",
+        title="SNMP default community",
+        description="d", affected="x",
+        control_refs=["IA.L2-3.5.7"],
+    )
+    for profile in BUILT_IN_PROFILES.values():
+        result = profile.apply([high_finding])
+        if result:   # not suppressed
+            assert result[0].severity == "high", \
+                f"Profile '{profile.name}' downgraded a high finding"
+
+
+# ---------------------------------------------------------------------
+# CLI exit codes
+# ---------------------------------------------------------------------
+
+import subprocess
+import sys
+
+
+def _run_cli(*args) -> subprocess.CompletedProcess:
+    """Invoke the CLI as a subprocess to capture the real exit code."""
+    return subprocess.run(
+        [sys.executable, "-m", "pfsense_auditor", *args],
+        capture_output=True, text=True,
+    )
+
+
+def test_cli_missing_file_exits_3():
+    result = _run_cli("/tmp/this-path-does-not-exist-anywhere.xml")
+    assert result.returncode == 3
+    assert "does not exist" in result.stderr.lower()
+
+
+def test_cli_directory_instead_of_file_exits_3(tmp_path):
+    result = _run_cli(str(tmp_path))
+    assert result.returncode == 3
+    assert "not a regular file" in result.stderr.lower()
+
+
+def test_cli_malformed_xml_exits_3(tmp_path):
+    bad = tmp_path / "bogus.xml"
+    bad.write_text("<not-pfsense/>")
+    result = _run_cli(str(bad))
+    assert result.returncode == 3
+    assert "error parsing" in result.stderr.lower()
+
+
+def test_cli_clean_config_exits_0(tmp_path):
+    clean = tmp_path / "clean.xml"
+    clean.write_text(
+        """<?xml version="1.0"?>
+        <pfsense>
+          <version>23.5</version>
+          <system>
+            <hostname>clean</hostname><domain>example.com</domain>
+            <timeservers>0.pool.ntp.org 1.pool.ntp.org 2.pool.ntp.org</timeservers>
+            <webgui><protocol>https</protocol></webgui>
+            <ssh></ssh>
+            <user><name>scott</name><uid>2000</uid><scope>user</scope></user>
+          </system>
+          <interfaces><lan><if>em0</if><enable></enable></lan></interfaces>
+          <aliases/><filter/>
+          <syslog><enable></enable><remoteserver>siem.example.com</remoteserver></syslog>
+        </pfsense>
+        """
+    )
+    result = _run_cli(str(clean))
+    assert result.returncode == 0
+
+
+def test_cli_high_findings_exits_2():
+    """The bundled synthetic config has high findings → exit 2."""
+    fixture = "tests/fixtures/sample_config.xml"
+    result = _run_cli(fixture)
+    assert result.returncode == 2
+
+
+def test_cli_profile_flag_accepts_all_builtins():
+    fixture = "tests/fixtures/sample_config.xml"
+    for name in BUILT_IN_PROFILES:
+        result = _run_cli(fixture, "--profile", name)
+        # 2 because the synthetic config has high findings under any profile
+        assert result.returncode == 2, (
+            f"Profile '{name}' returned exit {result.returncode}"
+        )
