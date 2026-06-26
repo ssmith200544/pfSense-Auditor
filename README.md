@@ -58,7 +58,7 @@ effort of demonstrating compliance.
   and rarely cover more than a handful of checks.
 - **Host-level vulnerability scanners** (Tenable, Qualys, Rapid7) —
   scan for CVEs against running services; they do not review the
-  firewall's *own* configuration.
+  firewall's _own_ configuration.
 
 ### What gap does your tool fill?
 
@@ -161,7 +161,7 @@ without touching parsing or checks.
   non-existent file path; both produce clear error messages and a
   non-zero exit code.
 - JSON output was validated by piping through `python -c "import
-  json,sys; json.load(sys.stdin)"`. HTML output was validated by
+json,sys; json.load(sys.stdin)"`. HTML output was validated by
   rendering in a browser.
 
 ### Results
@@ -267,14 +267,14 @@ be committed). Then:
 
 ### Options
 
-| Flag                 | Description                                                 |
-|----------------------|-------------------------------------------------------------|
-| `-f`, `--format`     | `text` (default), `json`, or `html`                         |
-| `-o`, `--output`     | Write report to a file instead of stdout                    |
-| `-a`, `--allowlist`  | Path to a YAML suppression file (see below)                 |
-| `-p`, `--profile`    | Operating profile: `cmmc` (default), `business`, or `home`  |
-| `--no-exit-code`     | Always exit 0 (useful when piping)                          |
-| `-h`, `--help`       | Show usage information                                      |
+| Flag                | Description                                                |
+| ------------------- | ---------------------------------------------------------- |
+| `-f`, `--format`    | `text` (default), `json`, or `html`                        |
+| `-o`, `--output`    | Write report to a file instead of stdout                   |
+| `-a`, `--allowlist` | Path to a YAML suppression file (see below)                |
+| `-p`, `--profile`   | Operating profile: `cmmc` (default), `business`, or `home` |
+| `--no-exit-code`    | Always exit 0 (useful when piping)                         |
+| `-h`, `--help`      | Show usage information                                     |
 
 If `--allowlist` is not provided, `.pfsense-audit-allowlist.yaml` is
 loaded from the current directory if present.
@@ -282,13 +282,13 @@ loaded from the current directory if present.
 ### Exit codes
 
 | Code | Meaning                                                    |
-|------|------------------------------------------------------------|
+| ---- | ---------------------------------------------------------- |
 | 0    | No findings, or only `info` findings                       |
 | 1    | At least one `low` or `medium` finding                     |
 | 2    | At least one `high` finding                                |
 | 3    | Input error: missing file, malformed XML, or bad allowlist |
 
-Code `3` is returned for *any* input problem so it never collides with
+Code `3` is returned for _any_ input problem so it never collides with
 `2`. CI scripts can safely distinguish "the firewall has high-severity
 findings" from "the tool couldn't read the input."
 
@@ -317,31 +317,31 @@ format.
 
 ### Firewall (FW)
 
-| ID      | Severity      | Check                                            | Controls                            |
-|---------|---------------|--------------------------------------------------|-------------------------------------|
-| FW-001  | high          | Permissive any/any pass rules                    | AC.L2-3.1.3, SC.L2-3.13.1           |
-| FW-002  | low           | Rules with no description                        | CM.L2-3.4.1, CM.L2-3.4.2            |
-| FW-003  | medium        | Pass rules with logging disabled                 | AU.L2-3.3.1, AU.L2-3.3.2            |
-| FW-004  | info          | Disabled rules left in the configuration         | CM.L2-3.4.1                         |
-| FW-005  | high          | WAN pass rules with destination `(self)`         | AC.L2-3.1.3, AC.L2-3.1.13           |
-| FW-006  | low           | Aliases defined but never referenced             | CM.L2-3.4.2                         |
-| FW-007  | high          | **IPsec phase 1/2 using weak crypto**            | SC.L2-3.13.8, SC.L2-3.13.11         |
-| FW-008  | high / medium | **NAT port-forwards exposing SSH, RDP, etc.**    | AC.L2-3.1.3, SC.L2-3.13.6           |
+| ID     | Severity      | Check                                         | Controls                    |
+| ------ | ------------- | --------------------------------------------- | --------------------------- |
+| FW-001 | high          | Permissive any/any pass rules                 | AC.L2-3.1.3, SC.L2-3.13.1   |
+| FW-002 | low           | Rules with no description                     | CM.L2-3.4.1, CM.L2-3.4.2    |
+| FW-003 | medium        | Pass rules with logging disabled              | AU.L2-3.3.1, AU.L2-3.3.2    |
+| FW-004 | info          | Disabled rules left in the configuration      | CM.L2-3.4.1                 |
+| FW-005 | high          | WAN pass rules with destination `(self)`      | AC.L2-3.1.3, AC.L2-3.1.13   |
+| FW-006 | low           | Aliases defined but never referenced          | CM.L2-3.4.2                 |
+| FW-007 | high          | **IPsec phase 1/2 using weak crypto**         | SC.L2-3.13.8, SC.L2-3.13.11 |
+| FW-008 | high / medium | **NAT port-forwards exposing SSH, RDP, etc.** | AC.L2-3.1.3, SC.L2-3.13.6   |
 
 ### System (SYS)
 
-| ID      | Severity      | Check                                            | Controls                            |
-|---------|---------------|--------------------------------------------------|-------------------------------------|
-| SYS-001 | high          | webConfigurator running on HTTP                  | SC.L2-3.13.8                        |
-| SYS-002 | medium        | SSH enabled with password auth allowed           | IA.L2-3.5.3, IA.L2-3.5.7            |
-| SYS-003 | medium        | Built-in `admin` account still enabled           | IA.L2-3.5.1, IA.L2-3.5.2            |
-| SYS-004 | high          | SNMP enabled with default community string       | IA.L2-3.5.7, SC.L2-3.13.1           |
-| SYS-005 | low / medium  | NTP missing or fewer than three sources          | AU.L2-3.3.7                         |
-| SYS-006 | medium        | No remote syslog forwarding configured           | AU.L2-3.3.8, AU.L2-3.3.9            |
-| SYS-007 | high / medium | **Certificates expired or expiring (≤30 days)** | SC.L2-3.13.10                       |
-| SYS-008 | medium        | **Certificates with weak crypto (SHA-1, RSA<2048)** | SC.L2-3.13.8, SC.L2-3.13.11      |
-| SYS-009 | medium        | **Admin users without TOTP or SSH keys**         | IA.L2-3.5.3                         |
-| SYS-010 | medium        | **User accounts past expiry but still enabled**  | AC.L2-3.1.1, IA.L2-3.5.6            |
+| ID      | Severity      | Check                                               | Controls                    |
+| ------- | ------------- | --------------------------------------------------- | --------------------------- |
+| SYS-001 | high          | webConfigurator running on HTTP                     | SC.L2-3.13.8                |
+| SYS-002 | medium        | SSH enabled with password auth allowed              | IA.L2-3.5.3, IA.L2-3.5.7    |
+| SYS-003 | medium        | Built-in `admin` account still enabled              | IA.L2-3.5.1, IA.L2-3.5.2    |
+| SYS-004 | high          | SNMP enabled with default community string          | IA.L2-3.5.7, SC.L2-3.13.1   |
+| SYS-005 | low / medium  | NTP missing or fewer than three sources             | AU.L2-3.3.7                 |
+| SYS-006 | medium        | No remote syslog forwarding configured              | AU.L2-3.3.8, AU.L2-3.3.9    |
+| SYS-007 | high / medium | **Certificates expired or expiring (≤30 days)**     | SC.L2-3.13.10               |
+| SYS-008 | medium        | **Certificates with weak crypto (SHA-1, RSA<2048)** | SC.L2-3.13.8, SC.L2-3.13.11 |
+| SYS-009 | medium        | **Admin users without TOTP or SSH keys**            | IA.L2-3.5.3                 |
+| SYS-010 | medium        | **User accounts past expiry but still enabled**     | AC.L2-3.1.1, IA.L2-3.5.6    |
 
 Bold entries are new in Day 14.
 
@@ -356,11 +356,11 @@ let the tool match its output to its audience.
 
 Three profiles ship built-in. Select with `-p` / `--profile`:
 
-| Profile     | Description                                                                 |
-|-------------|-----------------------------------------------------------------------------|
-| `cmmc`      | Federal contracting baseline (default). All checks at documented severity.  |
-| `business`  | SMB without explicit compliance. Two checks lightly downgraded.             |
-| `home`      | Residential. Audit-trail / SIEM-dependent checks downgraded or suppressed; control references hidden. |
+| Profile    | Description                                                                                           |
+| ---------- | ----------------------------------------------------------------------------------------------------- |
+| `cmmc`     | Federal contracting baseline (default). All checks at documented severity.                            |
+| `business` | SMB without explicit compliance. Two checks lightly downgraded.                                       |
+| `home`     | Residential. Audit-trail / SIEM-dependent checks downgraded or suppressed; control references hidden. |
 
 ### What each profile changes
 
@@ -414,24 +414,24 @@ current directory. Pass `-a /path/to/file.yaml` to use a different one.
 
 ```yaml
 suppressions:
-  - check_id: FW-003                              # required
-    affected: "Allow web traffic to DMZ servers"  # required
-    justification: "Covered by Suricata on DMZ uplink."  # required
-    owner: "scott@example.edu"                    # optional
-    expires: 2026-12-31                           # optional (ISO date)
-    ticket: "CSE-IT-1847"                         # optional
+  - check_id: FW-003 # required
+    affected: "Allow web traffic to DMZ servers" # required
+    justification: "Covered by Suricata on DMZ uplink." # required
+    owner: "scott@example.edu" # optional
+    expires: 2026-12-31 # optional (ISO date)
+    ticket: "IT-1847" # optional
 ```
 
 ### Affected matching
 
 The `affected` field supports three styles:
 
-| Pattern style       | Example                       | Behaviour                                |
-|---------------------|-------------------------------|------------------------------------------|
-| Exact string        | `"Allow web traffic"`         | Match must be identical                  |
-| Wildcard (`*` only) | `"*"`                         | Matches every finding of this `check_id` |
-| Glob (`*` or `?`)   | `"*DMZ*"`                     | Shell-style match via `fnmatch`          |
-| Regex               | `"re:^WAN.*self$"`            | Python regex via `re.fullmatch`          |
+| Pattern style       | Example               | Behaviour                                |
+| ------------------- | --------------------- | ---------------------------------------- |
+| Exact string        | `"Allow web traffic"` | Match must be identical                  |
+| Wildcard (`*` only) | `"*"`                 | Matches every finding of this `check_id` |
+| Glob (`*` or `?`)   | `"*DMZ*"`             | Shell-style match via `fnmatch`          |
+| Regex               | `"re:^WAN.*self$"`    | Python regex via `re.fullmatch`          |
 
 ### Audit behaviour
 
@@ -490,17 +490,6 @@ pfsense_auditor/                  <- repo root
 - HTML report with severity filtering
 - CMMC / NIST 800-171 control mapping on every finding
 - Pytest test suite (35 tests)
-
-### ✅ Day 21 — delivered (from peer-review feedback)
-
-- **Operating profiles** (`home`, `business`, `cmmc`) — addresses
-  reviewer feedback that a CMMC-only severity model misclassifies
-  home-network findings as high-risk
-- **Exit code alignment** — input errors (missing file, malformed XML,
-  bad allowlist) now consistently return code `3` instead of colliding
-  with `2` (high findings)
-- Test suite expanded to 50 tests, including CLI exit-code regression
-  tests
 
 ### Future work
 
