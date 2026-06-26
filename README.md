@@ -58,7 +58,7 @@ effort of demonstrating compliance.
   and rarely cover more than a handful of checks.
 - **Host-level vulnerability scanners** (Tenable, Qualys, Rapid7) —
   scan for CVEs against running services; they do not review the
-  firewall's _own_ configuration.
+  firewall's *own* configuration.
 
 ### What gap does your tool fill?
 
@@ -143,41 +143,42 @@ without touching parsing or checks.
 
 ### How did you test the tool?
 
-- A synthetic `tests/fixtures/sample_config.xml` was hand-crafted
-  to deliberately trigger every check. The fixture contains
-  realistic-looking but fully fake IPs, hostnames, and bcrypt
-  hashes so it is safe to commit to a public repository.
-- The tool was run against the synthetic config and the produced
-  findings were cross-checked by hand against the deliberate
+- A synthetic `tests/fixtures/sample_config.xml` was hand-crafted to
+  trigger every check. The fixture contains realistic-looking but
+  fully fake IPs, hostnames, certificates, and bcrypt hashes so it
+  is safe to commit to a public repository.
+- A **pytest suite** in `tests/test_checks.py` covers each check
+  function in isolation, plus the suppression engine's pattern
+  matching (exact / glob / regex), unused-suppression detection, and
+  expired-suppression handling. 35 tests total.
+- The tool was also run end-to-end against the synthetic config and
+  the findings cross-checked by hand against the deliberate
   misconfigurations.
-- A minimal "clean" config (no findings expected) was also tested
-  to verify the zero-findings path produces an empty findings
-  section and a `0` exit code.
-- Error handling was tested with (a) a non-pfSense XML document
-  and (b) a non-existent file path; both produce clear error
-  messages and a non-zero exit code.
-- JSON output was validated by piping into `python -c "import
-json,sys; json.load(sys.stdin)"` to confirm the format is parseable.
+- A minimal "clean" config (no findings expected) was tested to
+  verify the zero-findings path produces an empty findings section
+  and a `0` exit code.
+- Error handling was tested with a non-pfSense XML document and a
+  non-existent file path; both produce clear error messages and a
+  non-zero exit code.
+- JSON output was validated by piping through `python -c "import
+  json,sys; json.load(sys.stdin)"`. HTML output was validated by
+  rendering in a browser.
 
 ### Results
 
-- Against the synthetic fixture: **14 findings produced** across
-  all 12 checks (some checks legitimately fire multiple times when
-  a config violates the same rule in several places — for example,
-  multiple pass rules without logging each generate their own
-  finding).
-- Severity distribution: 4 `high`, 6 `medium`, 3 `low`, 1 `info`.
-- Exit code `2` returned, as expected when any `high` findings exist.
+- Against the synthetic fixture: **23 findings produced** across
+  all 18 checks (9 high, 10 medium, 3 low, 1 info). Exit code `2`
+  returned as expected when high findings exist.
+- With the sample allowlist applied: 3 findings suppressed, 1
+  expired suppression flagged, 1 unused suppression flagged.
 - Against the minimal clean config: zero findings, exit code `0`.
 - JSON output round-trips correctly through `json.loads`.
+- HTML report renders correctly with severity filtering working.
 - Total runtime on the synthetic config: under 100 ms.
+- Pytest suite: 35 tests, all passing, runs in under one second.
 
 ### Known issues and limitations
 
-- **Coverage is Day 7 MVP scope.** 12 checks cover common
-  misconfigurations but are not exhaustive — the CIS pfSense
-  Benchmark defines ~40 controls at Level 1, and full coverage is
-  planned for Day 14.
 - **Only tested against synthetic configs.** Real production
   `config.xml` exports may use sections (CARP, complex IPsec
   phase-2 entries, captive portal, package configs) the synthetic
@@ -188,18 +189,18 @@ json,sys; json.load(sys.stdin)"` to confirm the format is parseable.
   pfSense and uses a very similar XML format. The tool may work
   out of the box, may need minor adjustments, or may need a
   dedicated parser; this has not been tested.
-- **Checks are hardcoded in Python.** Adding a check requires
-  editing source. A YAML-driven check definition system is planned
-  for Day 14 so non-developers can contribute checks.
+- **Checks are hardcoded in Python.** A YAML-driven check
+  definition system would let non-developers contribute checks
+  without touching source.
 - **No diff capability yet.** Comparing two `config.xml` files for
   drift is the Day 21 milestone.
-- **No HTML report yet.** Text and JSON only at Day 7; HTML is
-  planned for Day 14.
-- **Bcrypt hash strength is not evaluated.** The tool detects that
-  the default `admin` account exists but does not assess password
-  hash quality. This is a deliberate scope decision — assessing
-  hashes requires either a brute-force harness or strong
-  assumptions about pfSense's hash format.
+- **Certificate parsing relies on metadata fields.** The tool reads
+  `<not_after>`, `<key_size>`, etc. as exposed by recent pfSense
+  versions. Older configs storing only the raw PEM in `<crt>` would
+  need an additional decode step (planned).
+- **No support for evaluating bcrypt password strength.** The tool
+  detects whether MFA factors exist; it does not score the
+  password itself.
 
 ---
 
@@ -266,21 +267,25 @@ be committed). Then:
 
 ### Options
 
-| Flag             | Description                              |
-| ---------------- | ---------------------------------------- |
-| `-f`, `--format` | `text` (default) or `json`               |
-| `-o`, `--output` | Write report to a file instead of stdout |
-| `--no-exit-code` | Always exit 0 (useful when piping)       |
-| `-h`, `--help`   | Show usage information                   |
+| Flag                 | Description                                                 |
+|----------------------|-------------------------------------------------------------|
+| `-f`, `--format`     | `text` (default), `json`, or `html`                         |
+| `-o`, `--output`     | Write report to a file instead of stdout                    |
+| `-a`, `--allowlist`  | Path to a YAML suppression file (see below)                 |
+| `--no-exit-code`     | Always exit 0 (useful when piping)                          |
+| `-h`, `--help`       | Show usage information                                      |
+
+If `--allowlist` is not provided, `.pfsense-audit-allowlist.yaml` is
+loaded from the current directory if present.
 
 ### Exit codes
 
-| Code | Meaning                                |
-| ---- | -------------------------------------- |
-| 0    | No findings, or only `info` findings   |
-| 1    | At least one `low` or `medium` finding |
-| 2    | At least one `high` finding            |
-| 3    | Parser / runtime error                 |
+| Code | Meaning                                  |
+|------|------------------------------------------|
+| 0    | No findings, or only `info` findings     |
+| 1    | At least one `low` or `medium` finding   |
+| 2    | At least one `high` finding              |
+| 3    | Parser / runtime error                   |
 
 ---
 
@@ -299,22 +304,86 @@ isn't aliased.
 
 ---
 
-## Checks Implemented (Day 7 MVP)
+## Checks Implemented
 
-| ID      | Severity     | Check                                      |
-| ------- | ------------ | ------------------------------------------ |
-| FW-001  | high         | Permissive any/any pass rules              |
-| FW-002  | low          | Rules with no description                  |
-| FW-003  | medium       | Pass rules with logging disabled           |
-| FW-004  | info         | Disabled rules left in the configuration   |
-| FW-005  | high         | WAN pass rules with destination `(self)`   |
-| FW-006  | low          | Aliases defined but never referenced       |
-| SYS-001 | high         | webConfigurator running on HTTP            |
-| SYS-002 | medium       | SSH enabled with password auth allowed     |
-| SYS-003 | medium       | Built-in `admin` account still enabled     |
-| SYS-004 | high         | SNMP enabled with default community string |
-| SYS-005 | low / medium | NTP missing or fewer than three sources    |
-| SYS-006 | medium       | No remote syslog forwarding configured     |
+Eighteen checks, each tagged with the NIST SP 800-171 / CMMC control
+families it maps to. Control references appear inline in every report
+format.
+
+### Firewall (FW)
+
+| ID      | Severity      | Check                                            | Controls                            |
+|---------|---------------|--------------------------------------------------|-------------------------------------|
+| FW-001  | high          | Permissive any/any pass rules                    | AC.L2-3.1.3, SC.L2-3.13.1           |
+| FW-002  | low           | Rules with no description                        | CM.L2-3.4.1, CM.L2-3.4.2            |
+| FW-003  | medium        | Pass rules with logging disabled                 | AU.L2-3.3.1, AU.L2-3.3.2            |
+| FW-004  | info          | Disabled rules left in the configuration         | CM.L2-3.4.1                         |
+| FW-005  | high          | WAN pass rules with destination `(self)`         | AC.L2-3.1.3, AC.L2-3.1.13           |
+| FW-006  | low           | Aliases defined but never referenced             | CM.L2-3.4.2                         |
+| FW-007  | high          | **IPsec phase 1/2 using weak crypto**            | SC.L2-3.13.8, SC.L2-3.13.11         |
+| FW-008  | high / medium | **NAT port-forwards exposing SSH, RDP, etc.**    | AC.L2-3.1.3, SC.L2-3.13.6           |
+
+### System (SYS)
+
+| ID      | Severity      | Check                                            | Controls                            |
+|---------|---------------|--------------------------------------------------|-------------------------------------|
+| SYS-001 | high          | webConfigurator running on HTTP                  | SC.L2-3.13.8                        |
+| SYS-002 | medium        | SSH enabled with password auth allowed           | IA.L2-3.5.3, IA.L2-3.5.7            |
+| SYS-003 | medium        | Built-in `admin` account still enabled           | IA.L2-3.5.1, IA.L2-3.5.2            |
+| SYS-004 | high          | SNMP enabled with default community string       | IA.L2-3.5.7, SC.L2-3.13.1           |
+| SYS-005 | low / medium  | NTP missing or fewer than three sources          | AU.L2-3.3.7                         |
+| SYS-006 | medium        | No remote syslog forwarding configured           | AU.L2-3.3.8, AU.L2-3.3.9            |
+| SYS-007 | high / medium | **Certificates expired or expiring (≤30 days)** | SC.L2-3.13.10                       |
+| SYS-008 | medium        | **Certificates with weak crypto (SHA-1, RSA<2048)** | SC.L2-3.13.8, SC.L2-3.13.11      |
+| SYS-009 | medium        | **Admin users without TOTP or SSH keys**         | IA.L2-3.5.3                         |
+| SYS-010 | medium        | **User accounts past expiry but still enabled**  | AC.L2-3.1.1, IA.L2-3.5.6            |
+
+Bold entries are new in Day 14.
+
+---
+
+## Suppressions (Allowlist)
+
+Some findings represent accepted risks. The tool supports a YAML
+**allowlist** file that suppresses specific findings — with a required
+justification so suppressions are auditable rather than invisible.
+
+By default the tool loads `.pfsense-audit-allowlist.yaml` from the
+current directory. Pass `-a /path/to/file.yaml` to use a different one.
+
+### Schema
+
+```yaml
+suppressions:
+  - check_id: FW-003                              # required
+    affected: "Allow web traffic to DMZ servers"  # required
+    justification: "Covered by Suricata on DMZ uplink."  # required
+    owner: "scott@example.edu"                    # optional
+    expires: 2026-12-31                           # optional (ISO date)
+    ticket: "CSE-IT-1847"                         # optional
+```
+
+### Affected matching
+
+The `affected` field supports three styles:
+
+| Pattern style       | Example                       | Behaviour                                |
+|---------------------|-------------------------------|------------------------------------------|
+| Exact string        | `"Allow web traffic"`         | Match must be identical                  |
+| Wildcard (`*` only) | `"*"`                         | Matches every finding of this `check_id` |
+| Glob (`*` or `?`)   | `"*DMZ*"`                     | Shell-style match via `fnmatch`          |
+| Regex               | `"re:^WAN.*self$"`            | Python regex via `re.fullmatch`          |
+
+### Audit behaviour
+
+The report shows a **Suppressed** section listing every suppressed
+finding alongside its justification, owner, ticket, and expiry. Two
+warnings are emitted automatically:
+
+- **Expired suppressions** — entries whose `expires` date is in the
+  past. Still applied, but flagged for re-review.
+- **Unused suppressions** — entries that did not match any finding.
+  Useful for catching stale rules after a config change.
 
 ---
 
@@ -349,6 +418,34 @@ pfsense_auditor/                  <- repo root
 - No credentials, no API access, no production firewall changes.
 - The same input file produces the same report — repeatable evidence.
 - Works against any pfSense version emitting compatible `config.xml`.
+
+---
+
+## Roadmap
+
+### ✅ Day 14 — delivered
+
+- 6 new checks: IPsec weak crypto, high-risk port forwards, certificate
+  expiry, certificate weak crypto, privileged users without MFA,
+  expired-but-enabled user accounts (total: 18 checks)
+- **Findings allowlist** with exact / glob / regex matching, expiry
+  tracking, and unused-rule detection
+- **HTML report** with severity filtering, control mapping inline
+- **CMMC / NIST 800-171 control mapping** on every finding
+- Pytest test suite (35 tests covering checks and suppression engine)
+
+### Day 21 — diff mode (planned)
+
+- `pfsense-audit diff old.xml new.xml` — compare two configs
+- Risk-classify changes (rule loosened, service added, user added)
+- HTML side-by-side view for change-control evidence
+
+### Future
+
+- Full CIS pfSense Benchmark Level 1 coverage (~40 checks)
+- SARIF output for GitHub PR integration
+- CSV output for auditor workflows
+- YAML-driven check definitions for non-developer contributions
 
 ---
 
@@ -389,10 +486,26 @@ The editable install (`-e`) creates a `pfsense-audit` command on your
 
 1. Write a function in `pfsense_auditor/checks.py` that takes a
    `PfSenseConfig` and returns `list[Finding]`. Use a stable
-   `check_id` (e.g. `FW-007`).
-2. Append the function to the `ALL_CHECKS` list at the bottom of
+   `check_id` (e.g. `FW-009`).
+2. Include `control_refs` listing the NIST 800-171 / CMMC controls
+   the check maps to.
+3. Append the function to the `ALL_CHECKS` list at the bottom of
    `checks.py`.
-3. Document it in the Checks Implemented table above.
+4. Add a unit test in `tests/test_checks.py` that builds a minimal
+   config exercising the check and asserts the expected `check_id`
+   fires.
+5. Document it in the Checks Implemented table above.
+
+### Running the Test Suite
+
+```bash
+pip install -e ".[test]"
+pytest -v
+```
+
+The suite has 35 tests covering each check function and the
+suppression engine (exact, glob, regex matching, expired and unused
+suppressions). Runs in under a second.
 
 ---
 

@@ -1,0 +1,25 @@
+suppressions:
+  # Exact string match
+  - check_id: FW-002
+    affected: "interface=opt1, type=pass"
+    justification: "Internal cleanup ticket, scheduled for Q3 refactor."
+    owner: "scott@example.edu"
+    ticket: "CSE-IT-1847"
+
+  # Glob match (DMZ-to-DMZ flows are intentionally not logged on this interface)
+  - check_id: FW-003
+    affected: "Allow web traffic*"
+    justification: "DMZ-to-DMZ HTTP intentionally not logged; covered by Suricata."
+    owner: "scott@example.edu"
+    expires: 2026-12-31
+
+  # Wildcard - all FW-006 findings
+  - check_id: FW-006
+    affected: "*"
+    justification: "Aliases retained for next quarter's network rework."
+    expires: 2025-12-31     # already expired - should be flagged
+
+  # Regex match against a finding that won't be produced (unused suppression)
+  - check_id: FW-001
+    affected: "re:^This will never match.*$"
+    justification: "Testing stale suppression detection."

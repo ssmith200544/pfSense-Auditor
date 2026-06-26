@@ -20,7 +20,11 @@ classifiers = [
 dependencies = [
     "click>=8.1",
     "lxml>=4.9",
+    "PyYAML>=6.0",
 ]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
 
 [project.scripts]
 pfsense-audit = "pfsense_auditor.cli:main"
