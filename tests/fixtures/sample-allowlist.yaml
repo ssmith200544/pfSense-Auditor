@@ -4,7 +4,7 @@ suppressions:
     affected: "interface=opt1, type=pass"
     justification: "Internal cleanup ticket, scheduled for Q3 refactor."
     owner: "scott@example.edu"
-    ticket: "CSE-IT-1847"
+    ticket: "IT-1847"
 
   # Glob match (DMZ-to-DMZ flows are intentionally not logged on this interface)
   - check_id: FW-003
@@ -17,7 +17,7 @@ suppressions:
   - check_id: FW-006
     affected: "*"
     justification: "Aliases retained for next quarter's network rework."
-    expires: 2025-12-31     # already expired - should be flagged
+    expires: 2025-12-31 # already expired - should be flagged
 
   # Regex match against a finding that won't be produced (unused suppression)
   - check_id: FW-001
